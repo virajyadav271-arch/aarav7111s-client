@@ -6,10 +6,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: unzip -q aarav7111s-client-source.zip
+      - name: Fix versions
+        working-directory: aarav7111s-client
+        run: |
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2G
+          minecraft_version=1.21.11
+          yarn_mappings=1.21.11+build.4
+          loader_version=0.18.4
+          fabric_version=0.141.3+1.21.11
+          mod_version=1.0.0
+          EOF
+          sed -i "s/1.14-SNAPSHOT/1.15-SNAPSHOT/" build.gradle
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 21 }
       - uses: gradle/actions/setup-gradle@v4
-        with: { gradle-version: "8.14" }
+        with: { gradle-version: "9.2.1" }
       - run: gradle build
         working-directory: aarav7111s-client
       - uses: actions/upload-artifact@v4
