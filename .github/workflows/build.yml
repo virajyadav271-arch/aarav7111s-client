@@ -18,8 +18,55 @@ jobs:
           mod_version=1.0.0
           EOF
           sed -i "s/1.14-SNAPSHOT/1.15-SNAPSHOT/" build.gradle
-          sed -i '/GraphicsMode/d' src/main/java/com/aarav7111/client/AaravClient.java
-          sed -i '/ParticlesMode/d' src/main/java/com/aarav7111/client/AaravClient.java
+          C=src/main/java/com/aarav7111/client
+          sed -i '/GraphicsMode/d' $C/AaravClient.java
+          sed -i '/ParticlesMode/d' $C/AaravClient.java
+          sed -i 's/"Aarav7111s Client"/"AY Client"/' $C/AaravClient.java $C/ClientMenuScreen.java
+          sed -i 's/Modules.load();/Modules.load();\n        Branding.init();/' $C/AaravClient.java
+          sed -i '/Module CPS /a\    public static final Module BRANDING = new Module("branding", "AY Branding", true);' $C/Modules.java
+          sed -i 's/KEYSTROKES, CPS);/KEYSTROKES, CPS, BRANDING);/' $C/Modules.java
+          cat > $C/Branding.java <<'JAVAEOF'
+          package com.aarav7111.client;
+
+          import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
+          import net.minecraft.client.MinecraftClient;
+          import net.minecraft.client.gui.DrawContext;
+          import net.minecraft.client.gui.screen.GameMenuScreen;
+          import net.minecraft.client.gui.screen.TitleScreen;
+          import net.minecraft.client.gui.screen.ingame.HandledScreen;
+          import net.minecraft.text.Text;
+          import net.minecraft.util.Formatting;
+
+          public final class Branding {
+              private Branding() {}
+
+              public static void init() {
+                  ScreenEvents.AFTER_INIT.register((client, screen, w, h) -> {
+                      if (screen instanceof HandledScreen<?>) {
+                          ScreenEvents.afterRender(screen).register((s, ctx, mx, my, delta) -> badge(ctx, true));
+                      } else if (screen instanceof TitleScreen || screen instanceof GameMenuScreen) {
+                          ScreenEvents.afterRender(screen).register((s, ctx, mx, my, delta) -> badge(ctx, false));
+                      }
+                  });
+              }
+
+              private static void badge(DrawContext ctx, boolean bottomRight) {
+                  if (!Modules.BRANDING.enabled) return;
+                  var tr = MinecraftClient.getInstance().textRenderer;
+                  Text ay = Text.literal("AY").formatted(Formatting.BOLD, Formatting.AQUA);
+                  Text rest = Text.literal(" Client").formatted(Formatting.WHITE);
+                  int w = tr.getWidth(ay) + tr.getWidth(rest) + 12;
+                  int h = 16;
+                  int x = bottomRight ? ctx.getScaledWindowWidth() - w - 6 : 6;
+                  int y = bottomRight ? ctx.getScaledWindowHeight() - h - 6 : 6;
+                  ctx.fill(x, y, x + w, y + h, 0xB0101018);
+                  ctx.fill(x, y, x + 2, y + h, 0xFF00E5FF);
+                  ctx.fill(x, y + h - 1, x + w, y + h, 0x6600E5FF);
+                  ctx.drawTextWithShadow(tr, ay, x + 7, y + 4, 0xFFFFFFFF);
+                  ctx.drawTextWithShadow(tr, rest, x + 7 + tr.getWidth(ay), y + 4, 0xFFFFFFFF);
+              }
+          }
+          JAVAEOF
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 21 }
       - uses: gradle/actions/setup-gradle@v4
