@@ -18,10 +18,12 @@ jobs:
           mod_version=1.0.0
           EOF
           sed -i "s/1.14-SNAPSHOT/1.15-SNAPSHOT/" build.gradle
+          sed -i "s/aarav7111s-client/ay-nova/" build.gradle
           C=src/main/java/com/aarav7111/client
+          R=src/main/resources
           sed -i '/GraphicsMode/d' $C/AaravClient.java
           sed -i '/ParticlesMode/d' $C/AaravClient.java
-          sed -i 's/"Aarav7111s Client"/"AY Client"/' $C/AaravClient.java $C/ClientMenuScreen.java
+          sed -i 's/Aarav7111s Client/AY Nova/g' $C/AaravClient.java $R/fabric.mod.json $R/assets/aarav7111sclient/lang/en_us.json
           sed -i 's/Modules.load();/Modules.load();\n        Branding.init();/' $C/AaravClient.java
           sed -i '/Module CPS /a\    public static final Module BRANDING = new Module("branding", "AY Branding", true);' $C/Modules.java
           sed -i 's/KEYSTROKES, CPS);/KEYSTROKES, CPS, BRANDING);/' $C/Modules.java
@@ -54,7 +56,7 @@ jobs:
                   if (!Modules.BRANDING.enabled) return;
                   var tr = MinecraftClient.getInstance().textRenderer;
                   Text ay = Text.literal("AY").formatted(Formatting.BOLD, Formatting.AQUA);
-                  Text rest = Text.literal(" Client").formatted(Formatting.WHITE);
+                  Text rest = Text.literal(" Nova").formatted(Formatting.WHITE);
                   int w = tr.getWidth(ay) + tr.getWidth(rest) + 12;
                   int h = 16;
                   int x = bottomRight ? ctx.getScaledWindowWidth() - w - 6 : 6;
@@ -67,6 +69,172 @@ jobs:
               }
           }
           JAVAEOF
+          cat > $C/ClientMenuScreen.java <<'MENUEOF'
+          package com.aarav7111.client;
+
+          import net.minecraft.client.MinecraftClient;
+          import net.minecraft.client.gui.DrawContext;
+          import net.minecraft.client.gui.screen.Screen;
+          import net.minecraft.client.gui.widget.ButtonWidget;
+          import net.minecraft.text.Text;
+          import net.minecraft.util.Formatting;
+
+          import java.util.ArrayList;
+          import java.util.List;
+
+          public class ClientMenuScreen extends Screen {
+              private static final int CARD_W = 120, CARD_H = 20, GAP = 4;
+              private final List<Integer> headerX = new ArrayList<>();
+              private final List<Integer> headerY = new ArrayList<>();
+              private final List<String> headerName = new ArrayList<>();
+              private int panelX, panelY, panelW, panelH;
+
+              public ClientMenuScreen() {
+                  super(Text.literal("AY Nova"));
+              }
+
+              private static String shortName(Module m) {
+                  return switch (m.id) {
+                      case "hud" -> "Info HUD";
+                      case "blockinfo" -> "Block Info";
+                      case "crosshair" -> "Crosshair";
+                      case "zoom" -> "Zoom (C)";
+                      case "autosprint" -> "Auto Sprint";
+                      case "fullbright" -> "Fullbright";
+                      case "fpsboost" -> "FPS Boost";
+                      case "armorhud" -> "Armor HUD";
+                      case "durawarn" -> "Dura Warning";
+                      case "potionhud" -> "Potion HUD";
+                      case "keystrokes" -> "Keystrokes";
+                      case "cps" -> "CPS";
+                      case "branding" -> "AY Branding";
+                      default -> m.name;
+                  };
+              }
+
+              @Override
+              protected void init() {
+                  headerX.clear();
+                  headerY.clear();
+                  headerName.clear();
+                  List<Module> visuals = List.of(Modules.HUD, Modules.BLOCK_INFO, Modules.CROSSHAIR,
+                          Modules.ARMOR_HUD, Modules.DURA_WARN, Modules.POTION_HUD,
+                          Modules.KEYSTROKES, Modules.CPS, Modules.BRANDING);
+                  List<Module> gameplay = List.of(Modules.ZOOM, Modules.AUTO_SPRINT,
+                          Modules.FULLBRIGHT, Modules.FPS_BOOST);
+                  panelW = CARD_W * 3 + GAP * 2 + 28;
+                  int rowsV = (visuals.size() + 2) / 3;
+                  int rowsG = (gameplay.size() + 2) / 3;
+                  panelH = 50 + 14 + rowsV * (CARD_H + GAP) + 6 + 14 + rowsG * (CARD_H + GAP) + 22;
+                  panelX = (this.width - panelW) / 2;
+                  panelY = Math.max(4, (this.height - panelH) / 2);
+                  int x0 = panelX + 14;
+                  int y = panelY + 50;
+                  y = addSection("VISUALS", visuals, x0, y);
+                  addSection("GAMEPLAY", gameplay, x0, y + 6);
+              }
+
+              private int addSection(String name, List<Module> list, int x0, int y) {
+                  headerX.add(x0);
+                  headerY.add(y);
+                  headerName.add(name);
+                  y += 14;
+                  for (int i = 0; i < list.size(); i++) {
+                      Module m = list.get(i);
+                      int x = x0 + (i % 3) * (CARD_W + GAP);
+                      int yy = y + (i / 3) * (CARD_H + GAP);
+                      addDrawableChild(new CardButton(x, yy, CARD_W, CARD_H, m, b -> {
+                          m.enabled = !m.enabled;
+                          AaravClient.onModuleChanged(m);
+                          Modules.save();
+                      }));
+                  }
+                  return y + ((list.size() + 2) / 3) * (CARD_H + GAP);
+              }
+
+              public void renderBackground(DrawContext ctx, int mouseX, int mouseY, float delta) {
+                  long t = System.currentTimeMillis();
+                  var tr = this.textRenderer;
+
+                  ctx.fillGradient(0, 0, this.width, this.height, 0xC8070A14, 0xDD0B1426);
+
+                  for (int i = 0; i < 48; i++) {
+                      double sp = 0.015 + (i % 5) * 0.006;
+                      int sx = (int) ((i * 97 + t * sp) % this.width);
+                      int sy = (int) ((i * 53 + Math.sin(t / 1500.0 + i) * 6 + t * sp * 0.3) % this.height);
+                      int a = Math.max(20, 60 + (int) (60 * Math.sin(t / 700.0 + i)));
+                      int sz = (i % 3 == 0) ? 2 : 1;
+                      ctx.fill(sx, sy, sx + sz, sy + sz, (a << 24) | 0x9BE8FF);
+                  }
+
+                  ctx.fill(panelX - 1, panelY - 1, panelX + panelW + 1, panelY + panelH + 1, 0x5500E5FF);
+                  ctx.fillGradient(panelX, panelY, panelX + panelW, panelY + panelH, 0xE6101828, 0xE60A0F1C);
+
+                  for (int i = 0; i < panelW; i += 2) {
+                      float hue = ((i / (float) panelW) * 0.25f + 0.5f + (t % 6000) / 6000f) % 1f;
+                      int rgb = java.awt.Color.HSBtoRGB(hue, 0.65f, 1f) | 0xFF000000;
+                      ctx.fill(panelX + i, panelY, panelX + Math.min(i + 2, panelW), panelY + 2, rgb);
+                  }
+
+                  Text ay = Text.literal("AY ").formatted(Formatting.BOLD, Formatting.AQUA);
+                  Text nova = Text.literal("NOVA").formatted(Formatting.BOLD, Formatting.WHITE);
+                  int tw = tr.getWidth(ay) + tr.getWidth(nova);
+                  int tx = panelX + (panelW - tw) / 2;
+                  ctx.drawTextWithShadow(tr, ay, tx, panelY + 12, 0xFFFFFFFF);
+                  ctx.drawTextWithShadow(tr, nova, tx + tr.getWidth(ay), panelY + 12, 0xFFFFFFFF);
+                  String sub = "client menu";
+                  ctx.drawTextWithShadow(tr, sub, panelX + (panelW - tr.getWidth(sub)) / 2,
+                          panelY + 25, 0xFF7C879E);
+                  ctx.fill(panelX + 14, panelY + 41, panelX + panelW - 14, panelY + 42, 0x3300E5FF);
+
+                  for (int i = 0; i < headerName.size(); i++) {
+                      int hx = headerX.get(i), hy = headerY.get(i);
+                      String n = headerName.get(i);
+                      ctx.drawTextWithShadow(tr, n, hx, hy + 1, 0xFF00E5FF);
+                      ctx.fill(hx + tr.getWidth(n) + 6, hy + 5, panelX + panelW - 14, hy + 6, 0x3300E5FF);
+                  }
+
+                  String hint = "Esc to close  -  made by AYmc";
+                  ctx.drawTextWithShadow(tr, hint, panelX + (panelW - tr.getWidth(hint)) / 2,
+                          panelY + panelH - 14, 0xFF5D6780);
+              }
+
+              @Override
+              public boolean shouldPause() {
+                  return false;
+              }
+
+              private static class CardButton extends ButtonWidget {
+                  private final Module module;
+
+                  CardButton(int x, int y, int w, int h, Module module, PressAction action) {
+                      super(x, y, w, h, Text.literal(shortName(module)), action, DEFAULT_NARRATION_SUPPLIER);
+                      this.module = module;
+                  }
+
+                  public void renderWidget(DrawContext ctx, int mouseX, int mouseY, float delta) {
+                      var tr = MinecraftClient.getInstance().textRenderer;
+                      int x = getX(), y = getY(), w = getWidth(), h = getHeight();
+                      boolean on = module.enabled;
+                      boolean hov = isHovered();
+
+                      ctx.fill(x, y, x + w, y + h, hov ? 0xCC23304A : 0xAA131A2B);
+                      ctx.fill(x, y, x + 3, y + h, on ? 0xFF00E5FF : 0xFF3A4258);
+                      ctx.fill(x, y, x + w, y + 1, hov ? 0x6600E5FF : 0x22FFFFFF);
+
+                      String label = tr.trimToWidth(getMessage().getString(), w - 42);
+                      ctx.drawTextWithShadow(tr, label, x + 9, y + (h - 8) / 2,
+                              on ? 0xFFFFFFFF : 0xFF8F9AB3);
+
+                      int sw = 22, sh = 10;
+                      int sx = x + w - sw - 7, sy = y + (h - sh) / 2;
+                      ctx.fill(sx, sy, sx + sw, sy + sh, on ? 0xFF00B8D4 : 0xFF2A3042);
+                      int kx = on ? sx + sw - sh + 1 : sx + 1;
+                      ctx.fill(kx, sy + 1, kx + sh - 2, sy + sh - 1, 0xFFFFFFFF);
+                  }
+              }
+          }
+          MENUEOF
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 21 }
       - uses: gradle/actions/setup-gradle@v4
@@ -75,5 +243,5 @@ jobs:
         working-directory: aarav7111s-client
       - uses: actions/upload-artifact@v4
         with:
-          name: aarav7111s-client-jar
+          name: ay-nova-jar
           path: aarav7111s-client/build/libs/*.jar
