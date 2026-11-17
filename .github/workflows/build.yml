@@ -25,19 +25,95 @@ jobs:
           sed -i '/ParticlesMode/d' $C/AaravClient.java
           sed -i 's/Aarav7111s Client/AY Nova/g' $C/AaravClient.java $R/fabric.mod.json $R/assets/aarav7111sclient/lang/en_us.json
           sed -i 's/Modules.load();/Modules.load();\n        Branding.init();/' $C/AaravClient.java
+          sed -i '/Module CPS /a\    public static final Module WARN_FIRE = new Module("warnfire", "Fire Warning", true);' $C/Modules.java
+          sed -i '/Module CPS /a\    public static final Module WARN_TOTEM = new Module("warntotem", "Totem Warning", true);' $C/Modules.java
+          sed -i '/Module CPS /a\    public static final Module WARN_SHIELD = new Module("warnshield", "Shield Warning", true);' $C/Modules.java
           sed -i '/Module CPS /a\    public static final Module BRANDING = new Module("branding", "AY Branding", true);' $C/Modules.java
-          sed -i 's/KEYSTROKES, CPS);/KEYSTROKES, CPS, BRANDING);/' $C/Modules.java
+          sed -i 's/KEYSTROKES, CPS);/KEYSTROKES, CPS, BRANDING, WARN_SHIELD, WARN_TOTEM, WARN_FIRE);/' $C/Modules.java
+          cat > $C/Warnings.java <<'WARNEOF'
+          package com.aarav7111.client;
+
+          import net.minecraft.client.MinecraftClient;
+          import net.minecraft.client.font.TextRenderer;
+          import net.minecraft.client.gui.DrawContext;
+          import net.minecraft.entity.effect.StatusEffectInstance;
+          import net.minecraft.entity.effect.StatusEffects;
+          import net.minecraft.item.ItemStack;
+          import net.minecraft.item.Items;
+
+          public final class Warnings {
+              private static int maxTotems = 0;
+
+              private Warnings() {}
+
+              public static void render(DrawContext ctx) {
+                  MinecraftClient mc = MinecraftClient.getInstance();
+                  if (mc.player == null || mc.options.hudHidden) return;
+                  TextRenderer tr = mc.textRenderer;
+                  int y = ctx.getScaledWindowHeight() / 2 + 56;
+
+                  if (Modules.WARN_SHIELD.enabled) {
+                      ItemStack s = mc.player.getOffHandStack();
+                      if (!s.isOf(Items.SHIELD)) s = mc.player.getMainHandStack();
+                      if (s.isOf(Items.SHIELD) && s.isDamageable()) {
+                          float pct = (s.getMaxDamage() - s.getDamage()) / (float) s.getMaxDamage();
+                          if (pct <= 0.2f) {
+                              y = banner(ctx, tr, y, "Shield durability " + Math.max(0, (int) (pct * 100)) + "%", 0xFF9A1F);
+                          }
+                      }
+                  }
+
+                  if (Modules.WARN_TOTEM.enabled) {
+                      var inv = mc.player.getInventory();
+                      int count = 0;
+                      int n = Math.min(36, inv.size());
+                      for (int i = 0; i < n; i++) {
+                          ItemStack st = inv.getStack(i);
+                          if (st.isOf(Items.TOTEM_OF_UNDYING)) count += st.getCount();
+                      }
+                      ItemStack off = mc.player.getOffHandStack();
+                      if (off.isOf(Items.TOTEM_OF_UNDYING)) count += off.getCount();
+                      if (count > maxTotems) maxTotems = count;
+                      if (maxTotems > 0 && count <= 1) {
+                          y = banner(ctx, tr, y, count == 0 ? "OUT OF TOTEMS" : "LAST TOTEM", 0xFFD23F);
+                      }
+                  }
+
+                  if (Modules.WARN_FIRE.enabled) {
+                      StatusEffectInstance fr = mc.player.getStatusEffect(StatusEffects.FIRE_RESISTANCE);
+                      if (fr != null && !fr.isInfinite() && fr.getDuration() < 200) {
+                          y = banner(ctx, tr, y, "Fire Resistance ending in " + (fr.getDuration() / 20 + 1) + "s", 0xFF7A18);
+                      } else if (fr == null && mc.player.isOnFire()) {
+                          y = banner(ctx, tr, y, "You are on fire!", 0xFF5A1A);
+                      }
+                  }
+              }
+
+              private static int banner(DrawContext ctx, TextRenderer tr, int y, String text, int rgb) {
+                  float pulse = 0.55f + 0.45f * (float) Math.sin(System.currentTimeMillis() / 180.0);
+                  int a = Math.max(40, (int) (255 * pulse));
+                  int w = tr.getWidth(text) + 16;
+                  int x = (ctx.getScaledWindowWidth() - w) / 2;
+                  ctx.fill(x, y, x + w, y + 16, ((a / 2) << 24) | 0x1A1004);
+                  ctx.fill(x, y, x + w, y + 1, (a << 24) | (rgb & 0xFFFFFF));
+                  ctx.fill(x, y + 15, x + w, y + 16, (a << 24) | (rgb & 0xFFFFFF));
+                  ctx.drawTextWithShadow(tr, text, x + 8, y + 4, (a << 24) | 0xFFFFFF);
+                  return y + 19;
+              }
+          }
+          WARNEOF
           cat > $C/Branding.java <<'JAVAEOF'
           package com.aarav7111.client;
 
+          import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
+          import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
           import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
           import net.minecraft.client.MinecraftClient;
           import net.minecraft.client.gui.DrawContext;
           import net.minecraft.client.gui.screen.GameMenuScreen;
           import net.minecraft.client.gui.screen.TitleScreen;
           import net.minecraft.client.gui.screen.ingame.HandledScreen;
-          import net.minecraft.text.Text;
-          import net.minecraft.util.Formatting;
+          import net.minecraft.util.Identifier;
 
           public final class Branding {
               private Branding() {}
@@ -50,47 +126,62 @@ jobs:
                           ScreenEvents.afterRender(screen).register((s, ctx, mx, my, delta) -> badge(ctx, false));
                       }
                   });
+
+                  HudElementRegistry.attachElementAfter(
+                          VanillaHudElements.MISC_OVERLAYS,
+                          Identifier.of("aarav7111sclient", "warnings"),
+                          (ctx, tick) -> Warnings.render(ctx));
               }
 
               private static void badge(DrawContext ctx, boolean bottomRight) {
                   if (!Modules.BRANDING.enabled) return;
                   var tr = MinecraftClient.getInstance().textRenderer;
-                  Text ay = Text.literal("AY").formatted(Formatting.BOLD, Formatting.AQUA);
-                  Text rest = Text.literal(" Nova").formatted(Formatting.WHITE);
-                  int w = tr.getWidth(ay) + tr.getWidth(rest) + 12;
+                  String ay = "\u00a7lAY";
+                  String nova = " Nova";
+                  int w = tr.getWidth(ay) + tr.getWidth(nova) + 14;
                   int h = 16;
                   int x = bottomRight ? ctx.getScaledWindowWidth() - w - 6 : 6;
                   int y = bottomRight ? ctx.getScaledWindowHeight() - h - 6 : 6;
-                  ctx.fill(x, y, x + w, y + h, 0xB0101018);
-                  ctx.fill(x, y, x + 2, y + h, 0xFF00E5FF);
-                  ctx.fill(x, y + h - 1, x + w, y + h, 0x6600E5FF);
-                  ctx.drawTextWithShadow(tr, ay, x + 7, y + 4, 0xFFFFFFFF);
-                  ctx.drawTextWithShadow(tr, rest, x + 7 + tr.getWidth(ay), y + 4, 0xFFFFFFFF);
+                  ctx.fill(x, y, x + w, y + h, 0x40100C08);
+                  ctx.fill(x, y, x + 2, y + h, 0xAAFF9A1F);
+                  ctx.fill(x, y + h - 1, x + w, y + h, 0x55FFD23F);
+                  ctx.drawTextWithShadow(tr, ay, x + 7, y + 4, 0xCCFFB02E);
+                  ctx.drawTextWithShadow(tr, nova, x + 7 + tr.getWidth(ay), y + 4, 0xB0FFFFFF);
               }
           }
           JAVAEOF
           cat > $C/ClientMenuScreen.java <<'MENUEOF'
           package com.aarav7111.client;
 
-          import net.minecraft.client.MinecraftClient;
           import net.minecraft.client.gui.DrawContext;
           import net.minecraft.client.gui.screen.Screen;
           import net.minecraft.client.gui.widget.ButtonWidget;
           import net.minecraft.text.Text;
-          import net.minecraft.util.Formatting;
 
           import java.util.ArrayList;
           import java.util.List;
 
           public class ClientMenuScreen extends Screen {
-              private static final int CARD_W = 120, CARD_H = 20, GAP = 4;
-              private final List<Integer> headerX = new ArrayList<>();
-              private final List<Integer> headerY = new ArrayList<>();
-              private final List<String> headerName = new ArrayList<>();
-              private int panelX, panelY, panelW, panelH;
+              private static final int GAP = 6, CARD_H = 44, HEAD_H = 18;
+              private static final int ORANGE = 0xFFFF9A1F, YELLOW = 0xFFFFD23F, WHITE = 0xFFFFFFFF;
+
+              private static class Entry {
+                  String header;
+                  Module m;
+                  String desc;
+                  ButtonWidget btn;
+                  int col, rel;
+                  float anim, hov;
+              }
+
+              private final List<Entry> entries = new ArrayList<>();
+              private final long openedAt = System.currentTimeMillis();
+              private int panelX, panelY, panelW, panelH, viewTop, viewBottom, cardW, contentH;
+              private float scrollCur = 0f, scrollTarget = 0f;
+              private ButtonWidget upBtn, downBtn, closeBtn;
 
               public ClientMenuScreen() {
-                  super(Text.literal("AY Nova"));
+                  super(Text.of("AY Nova"));
               }
 
               private static String shortName(Module m) {
@@ -98,140 +189,240 @@ jobs:
                       case "hud" -> "Info HUD";
                       case "blockinfo" -> "Block Info";
                       case "crosshair" -> "Crosshair";
-                      case "zoom" -> "Zoom (C)";
+                      case "zoom" -> "Zoom";
                       case "autosprint" -> "Auto Sprint";
                       case "fullbright" -> "Fullbright";
                       case "fpsboost" -> "FPS Boost";
                       case "armorhud" -> "Armor HUD";
-                      case "durawarn" -> "Dura Warning";
+                      case "durawarn" -> "Armor Warning";
                       case "potionhud" -> "Potion HUD";
                       case "keystrokes" -> "Keystrokes";
-                      case "cps" -> "CPS";
+                      case "cps" -> "CPS Counter";
                       case "branding" -> "AY Branding";
+                      case "warnshield" -> "Shield Warning";
+                      case "warntotem" -> "Totem Warning";
+                      case "warnfire" -> "Fire Warning";
                       default -> m.name;
                   };
               }
 
-              @Override
-              protected void init() {
-                  headerX.clear();
-                  headerY.clear();
-                  headerName.clear();
-                  List<Module> visuals = List.of(Modules.HUD, Modules.BLOCK_INFO, Modules.CROSSHAIR,
-                          Modules.ARMOR_HUD, Modules.DURA_WARN, Modules.POTION_HUD,
-                          Modules.KEYSTROKES, Modules.CPS, Modules.BRANDING);
-                  List<Module> gameplay = List.of(Modules.ZOOM, Modules.AUTO_SPRINT,
-                          Modules.FULLBRIGHT, Modules.FPS_BOOST);
-                  panelW = CARD_W * 3 + GAP * 2 + 28;
-                  int rowsV = (visuals.size() + 2) / 3;
-                  int rowsG = (gameplay.size() + 2) / 3;
-                  panelH = 50 + 14 + rowsV * (CARD_H + GAP) + 6 + 14 + rowsG * (CARD_H + GAP) + 22;
-                  panelX = (this.width - panelW) / 2;
-                  panelY = Math.max(4, (this.height - panelH) / 2);
-                  int x0 = panelX + 14;
-                  int y = panelY + 50;
-                  y = addSection("VISUALS", visuals, x0, y);
-                  addSection("GAMEPLAY", gameplay, x0, y + 6);
+              private static String desc(Module m) {
+                  return switch (m.id) {
+                      case "hud" -> "FPS, coords, facing, ping";
+                      case "blockinfo" -> "Shows the block you look at";
+                      case "crosshair" -> "Custom AY crosshair";
+                      case "zoom" -> "Hold C to zoom in";
+                      case "autosprint" -> "Always sprint forward";
+                      case "fullbright" -> "See clearly in the dark";
+                      case "fpsboost" -> "Lower settings for more FPS";
+                      case "armorhud" -> "Armor with durability bars";
+                      case "durawarn" -> "Alert when armor is low";
+                      case "potionhud" -> "Styled effect panels";
+                      case "keystrokes" -> "WASD and mouse keys";
+                      case "cps" -> "Clicks per second";
+                      case "branding" -> "AY Nova badge on screens";
+                      case "warnshield" -> "Alert when shield is low";
+                      case "warntotem" -> "Alert when totems run low";
+                      case "warnfire" -> "Fire and fire resistance alert";
+                      default -> "";
+                  };
               }
 
-              private int addSection(String name, List<Module> list, int x0, int y) {
-                  headerX.add(x0);
-                  headerY.add(y);
-                  headerName.add(name);
-                  y += 14;
+              private static int lerpColor(int a, int b, float t) {
+                  t = Math.max(0f, Math.min(1f, t));
+                  int out = 0;
+                  for (int s = 24; s >= 0; s -= 8) {
+                      int ca = (a >>> s) & 255, cb = (b >>> s) & 255;
+                      out |= (((int) (ca + (cb - ca) * t)) & 255) << s;
+                  }
+                  return out;
+              }
+
+              private static int mulA(int c, float m) {
+                  int a = (int) (((c >>> 24) & 255) * m);
+                  a = Math.max(4, Math.min(255, a));
+                  return (a << 24) | (c & 0xFFFFFF);
+              }
+
+              private int maxScroll() {
+                  return Math.max(0, contentH - (viewBottom - viewTop));
+              }
+
+              private int section(String name, List<Module> list, int y) {
+                  Entry h = new Entry();
+                  h.header = name;
+                  h.rel = y;
+                  entries.add(h);
+                  y += HEAD_H;
                   for (int i = 0; i < list.size(); i++) {
                       Module m = list.get(i);
-                      int x = x0 + (i % 3) * (CARD_W + GAP);
-                      int yy = y + (i / 3) * (CARD_H + GAP);
-                      addDrawableChild(new CardButton(x, yy, CARD_W, CARD_H, m, b -> {
+                      Entry e = new Entry();
+                      e.m = m;
+                      e.desc = desc(m);
+                      e.col = i % 2;
+                      e.rel = y + (i / 2) * (CARD_H + GAP);
+                      e.anim = m.enabled ? 1f : 0f;
+                      e.btn = ButtonWidget.builder(Text.of(""), b -> {
                           m.enabled = !m.enabled;
                           AaravClient.onModuleChanged(m);
                           Modules.save();
-                      }));
+                      }).dimensions(panelX + 14 + e.col * (cardW + GAP), viewTop, cardW, CARD_H).build();
+                      addSelectableChild(e.btn);
+                      entries.add(e);
                   }
-                  return y + ((list.size() + 2) / 3) * (CARD_H + GAP);
+                  return y + ((list.size() + 1) / 2) * (CARD_H + GAP) + 4;
               }
 
-              public void renderBackground(DrawContext ctx, int mouseX, int mouseY, float delta) {
-                  long t = System.currentTimeMillis();
+              @Override
+              protected void init() {
+                  entries.clear();
+                  panelW = Math.min(this.width - 16, 340);
+                  panelH = Math.min(this.height - 12, 290);
+                  panelX = (this.width - panelW) / 2;
+                  panelY = (this.height - panelH) / 2;
+                  viewTop = panelY + 50;
+                  viewBottom = panelY + panelH - 28;
+                  cardW = (panelW - 28 - GAP) / 2;
+
+                  int y = 0;
+                  y = section("VISUALS", List.of(Modules.HUD, Modules.BLOCK_INFO, Modules.CROSSHAIR,
+                          Modules.ARMOR_HUD, Modules.POTION_HUD, Modules.KEYSTROKES,
+                          Modules.CPS, Modules.BRANDING), y);
+                  y = section("GAMEPLAY", List.of(Modules.ZOOM, Modules.AUTO_SPRINT,
+                          Modules.FULLBRIGHT, Modules.FPS_BOOST), y);
+                  y = section("WARNINGS", List.of(Modules.DURA_WARN, Modules.WARN_SHIELD,
+                          Modules.WARN_TOTEM, Modules.WARN_FIRE), y);
+                  contentH = y;
+
+                  upBtn = ButtonWidget.builder(Text.of(""), b -> scrollTarget = Math.max(0, scrollTarget - 40))
+                          .dimensions(panelX + panelW - 38, panelY + 14, 14, 14).build();
+                  downBtn = ButtonWidget.builder(Text.of(""), b -> scrollTarget = Math.min(maxScroll(), scrollTarget + 40))
+                          .dimensions(panelX + panelW - 22, panelY + 14, 14, 14).build();
+                  closeBtn = ButtonWidget.builder(Text.of(""), b -> close())
+                          .dimensions(panelX + (panelW - 90) / 2, panelY + panelH - 22, 90, 16).build();
+                  addSelectableChild(upBtn);
+                  addSelectableChild(downBtn);
+                  addSelectableChild(closeBtn);
+              }
+
+              public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+                  scrollTarget = Math.max(0, Math.min(maxScroll(), scrollTarget - (float) verticalAmount * 28f));
+                  return true;
+              }
+
+              private static boolean in(int mx, int my, int x, int y, int w, int h) {
+                  return mx >= x && mx < x + w && my >= y && my < y + h;
+              }
+
+              @Override
+              public void render(DrawContext ctx, int mx, int my, float delta) {
                   var tr = this.textRenderer;
+                  long now = System.currentTimeMillis();
+                  float t = Math.min(1f, (now - openedAt) / 280f);
+                  float ease = 1f - (float) Math.pow(1f - t, 3);
+                  int oy = (int) ((1f - ease) * 16);
+                  int py = panelY + oy;
+                  scrollCur += (scrollTarget - scrollCur) * 0.25f;
 
-                  ctx.fillGradient(0, 0, this.width, this.height, 0xC8070A14, 0xDD0B1426);
+                  ctx.fillGradient(0, 0, this.width, this.height, mulA(0xB0060509, ease), mulA(0xD01A0C03, ease));
 
-                  for (int i = 0; i < 48; i++) {
-                      double sp = 0.015 + (i % 5) * 0.006;
-                      int sx = (int) ((i * 97 + t * sp) % this.width);
-                      int sy = (int) ((i * 53 + Math.sin(t / 1500.0 + i) * 6 + t * sp * 0.3) % this.height);
-                      int a = Math.max(20, 60 + (int) (60 * Math.sin(t / 700.0 + i)));
+                  for (int i = 0; i < 56; i++) {
+                      int sx = (int) ((i * 97 + now * (0.012 + (i % 5) * 0.005)) % this.width);
+                      int sy = (int) ((i * 53 + Math.sin(now / 1500.0 + i) * 6 + now * 0.004 * (1 + i % 3)) % this.height);
+                      int a = (int) ((40 + 70 * (0.5 + 0.5 * Math.sin(now / 600.0 + i))) * ease);
                       int sz = (i % 3 == 0) ? 2 : 1;
-                      ctx.fill(sx, sy, sx + sz, sy + sz, (a << 24) | 0x9BE8FF);
+                      ctx.fill(sx, sy, sx + sz, sy + sz, (Math.max(a, 4) << 24) | ((i % 2 == 0) ? 0xFFB347 : 0xFFE9A8));
                   }
 
-                  ctx.fill(panelX - 1, panelY - 1, panelX + panelW + 1, panelY + panelH + 1, 0x5500E5FF);
-                  ctx.fillGradient(panelX, panelY, panelX + panelW, panelY + panelH, 0xE6101828, 0xE60A0F1C);
+                  float pulse = 0.5f + 0.5f * (float) Math.sin(now / 500.0);
+                  ctx.fill(panelX - 1, py - 1, panelX + panelW + 1, py + panelH + 1, mulA(ORANGE, (0.22f + 0.22f * pulse) * ease));
+                  ctx.fillGradient(panelX, py, panelX + panelW, py + panelH, mulA(0xF0141018, ease), mulA(0xF00B0810, ease));
 
                   for (int i = 0; i < panelW; i += 2) {
-                      float hue = ((i / (float) panelW) * 0.25f + 0.5f + (t % 6000) / 6000f) % 1f;
-                      int rgb = java.awt.Color.HSBtoRGB(hue, 0.65f, 1f) | 0xFF000000;
-                      ctx.fill(panelX + i, panelY, panelX + Math.min(i + 2, panelW), panelY + 2, rgb);
+                      float s = 0.5f + 0.5f * (float) Math.sin(i * 0.03 - now / 300.0);
+                      ctx.fill(panelX + i, py, panelX + Math.min(i + 2, panelW), py + 3, mulA(lerpColor(0xFFFF7A18, YELLOW, s), ease));
                   }
 
-                  Text ay = Text.literal("AY ").formatted(Formatting.BOLD, Formatting.AQUA);
-                  Text nova = Text.literal("NOVA").formatted(Formatting.BOLD, Formatting.WHITE);
-                  int tw = tr.getWidth(ay) + tr.getWidth(nova);
-                  int tx = panelX + (panelW - tw) / 2;
-                  ctx.drawTextWithShadow(tr, ay, tx, panelY + 12, 0xFFFFFFFF);
-                  ctx.drawTextWithShadow(tr, nova, tx + tr.getWidth(ay), panelY + 12, 0xFFFFFFFF);
-                  String sub = "client menu";
-                  ctx.drawTextWithShadow(tr, sub, panelX + (panelW - tr.getWidth(sub)) / 2,
-                          panelY + 25, 0xFF7C879E);
-                  ctx.fill(panelX + 14, panelY + 41, panelX + panelW - 14, panelY + 42, 0x3300E5FF);
+                  String title = "AY NOVA";
+                  int totalW = 0;
+                  for (int i = 0; i < title.length(); i++) totalW += tr.getWidth("\u00a7l" + title.charAt(i));
+                  int tx = panelX + (panelW - totalW) / 2;
+                  for (int i = 0; i < title.length(); i++) {
+                      String ch = "\u00a7l" + title.charAt(i);
+                      int dy = (int) Math.round(Math.sin(now / 260.0 + i * 0.7) * 2);
+                      float sh = 0.5f + 0.5f * (float) Math.sin(now / 400.0 - i * 0.6);
+                      int col = sh < 0.5f ? lerpColor(ORANGE, YELLOW, sh * 2f) : lerpColor(YELLOW, WHITE, (sh - 0.5f) * 2f);
+                      ctx.drawTextWithShadow(tr, ch, tx, py + 11 + dy, mulA(col, ease));
+                      tx += tr.getWidth(ch);
+                  }
+                  String sub = "client menu  -  made by AYmc";
+                  ctx.drawTextWithShadow(tr, sub, panelX + (panelW - tr.getWidth(sub)) / 2, py + 26, mulA(0xFF8C8498, ease));
+                  ctx.fill(panelX + 14, py + 40, panelX + panelW - 14, py + 41, mulA(0x55FF9A1F, ease));
 
-                  for (int i = 0; i < headerName.size(); i++) {
-                      int hx = headerX.get(i), hy = headerY.get(i);
-                      String n = headerName.get(i);
-                      ctx.drawTextWithShadow(tr, n, hx, hy + 1, 0xFF00E5FF);
-                      ctx.fill(hx + tr.getWidth(n) + 6, hy + 5, panelX + panelW - 14, hy + 6, 0x3300E5FF);
+                  ctx.enableScissor(panelX + 4, viewTop, panelX + panelW - 4, viewBottom);
+                  for (Entry e : entries) {
+                      int y = viewTop + e.rel - (int) scrollCur + oy;
+                      if (e.header != null) {
+                          ctx.drawTextWithShadow(tr, e.header, panelX + 14, y + 3, mulA(ORANGE, ease));
+                          int lx = panelX + 14 + tr.getWidth(e.header) + 6;
+                          ctx.fill(lx, y + 7, panelX + panelW - 16, y + 8, mulA(0x44FF9A1F, ease));
+                          continue;
+                      }
+                      int x = panelX + 14 + e.col * (cardW + GAP);
+                      e.btn.setX(x);
+                      e.btn.setY(y);
+                      boolean vis = y + CARD_H > viewTop && y < viewBottom;
+                      e.btn.visible = vis;
+                      e.btn.active = vis;
+
+                      boolean over = vis && in(mx, my, x, y, cardW, CARD_H) && my >= viewTop && my < viewBottom;
+                      e.hov += ((over ? 1f : 0f) - e.hov) * 0.25f;
+                      e.anim += ((e.m.enabled ? 1f : 0f) - e.anim) * 0.22f;
+
+                      ctx.fill(x, y, x + cardW, y + CARD_H, mulA(lerpColor(0xCC17131D, 0xE02A2030, e.hov), ease));
+                      ctx.fill(x, y, x + 3, y + CARD_H, mulA(lerpColor(0xFF3A3445, ORANGE, e.anim), ease));
+                      ctx.fill(x, y, x + cardW, y + 1, mulA(lerpColor(0x22FFFFFF, 0x77FFD23F, e.hov), ease));
+                      ctx.fill(x, y + CARD_H - 2, x + cardW, y + CARD_H, mulA(ORANGE, e.anim * 0.65f * ease));
+
+                      ctx.drawTextWithShadow(tr, shortName(e.m), x + 10, y + 9,
+                              mulA(lerpColor(0xFF9A93A8, WHITE, e.anim), ease));
+                      ctx.drawTextWithShadow(tr, tr.trimToWidth(e.desc, cardW - 56), x + 10, y + 24,
+                              mulA(0xFF7F788F, ease));
+
+                      int sw = 28, sh2 = 12;
+                      int sx = x + cardW - sw - 9, sy = y + (CARD_H - sh2) / 2;
+                      ctx.fill(sx, sy, sx + sw, sy + sh2, mulA(lerpColor(0xFF2B2736, ORANGE, e.anim), ease));
+                      int kx = sx + 1 + (int) ((sw - sh2) * e.anim);
+                      ctx.fill(kx, sy + 1, kx + sh2 - 2, sy + sh2 - 1, mulA(WHITE, ease));
+                  }
+                  ctx.disableScissor();
+
+                  int maxS = maxScroll();
+                  if (maxS > 0) {
+                      int vh = viewBottom - viewTop;
+                      int th = Math.max(16, vh * vh / contentH);
+                      int ty = viewTop + oy + (int) ((vh - th) * (scrollCur / maxS));
+                      ctx.fill(panelX + panelW - 8, viewTop + oy, panelX + panelW - 6, viewBottom + oy, mulA(0x33FFFFFF, ease));
+                      ctx.fill(panelX + panelW - 8, ty, panelX + panelW - 6, ty + th, mulA(ORANGE, ease));
                   }
 
-                  String hint = "Esc to close  -  made by AYmc";
-                  ctx.drawTextWithShadow(tr, hint, panelX + (panelW - tr.getWidth(hint)) / 2,
-                          panelY + panelH - 14, 0xFF5D6780);
+                  boolean hu = in(mx, my, panelX + panelW - 38, panelY + 14, 14, 14);
+                  boolean hd = in(mx, my, panelX + panelW - 22, panelY + 14, 14, 14);
+                  ctx.fill(panelX + panelW - 38, py + 14, panelX + panelW - 24, py + 28, mulA(hu ? 0xFF3A2C20 : 0xFF1E1A26, ease));
+                  ctx.fill(panelX + panelW - 22, py + 14, panelX + panelW - 8, py + 28, mulA(hd ? 0xFF3A2C20 : 0xFF1E1A26, ease));
+                  ctx.drawTextWithShadow(tr, "^", panelX + panelW - 33, py + 18, mulA(ORANGE, ease));
+                  ctx.drawTextWithShadow(tr, "v", panelX + panelW - 17, py + 18, mulA(ORANGE, ease));
+
+                  int cx = panelX + (panelW - 90) / 2, cy = py + panelH - 22;
+                  boolean hc = in(mx, my, cx, panelY + panelH - 22, 90, 16);
+                  ctx.fill(cx, cy, cx + 90, cy + 16, mulA(hc ? 0xFF4A3018 : 0xFF241C28, ease));
+                  ctx.fill(cx, cy + 15, cx + 90, cy + 16, mulA(ORANGE, ease));
+                  ctx.drawTextWithShadow(tr, "CLOSE", cx + (90 - tr.getWidth("CLOSE")) / 2, cy + 4, mulA(WHITE, ease));
               }
 
               @Override
               public boolean shouldPause() {
                   return false;
-              }
-
-              private static class CardButton extends ButtonWidget {
-                  private final Module module;
-
-                  CardButton(int x, int y, int w, int h, Module module, PressAction action) {
-                      super(x, y, w, h, Text.literal(shortName(module)), action, DEFAULT_NARRATION_SUPPLIER);
-                      this.module = module;
-                  }
-
-                  public void renderWidget(DrawContext ctx, int mouseX, int mouseY, float delta) {
-                      var tr = MinecraftClient.getInstance().textRenderer;
-                      int x = getX(), y = getY(), w = getWidth(), h = getHeight();
-                      boolean on = module.enabled;
-                      boolean hov = isHovered();
-
-                      ctx.fill(x, y, x + w, y + h, hov ? 0xCC23304A : 0xAA131A2B);
-                      ctx.fill(x, y, x + 3, y + h, on ? 0xFF00E5FF : 0xFF3A4258);
-                      ctx.fill(x, y, x + w, y + 1, hov ? 0x6600E5FF : 0x22FFFFFF);
-
-                      String label = tr.trimToWidth(getMessage().getString(), w - 42);
-                      ctx.drawTextWithShadow(tr, label, x + 9, y + (h - 8) / 2,
-                              on ? 0xFFFFFFFF : 0xFF8F9AB3);
-
-                      int sw = 22, sh = 10;
-                      int sx = x + w - sw - 7, sy = y + (h - sh) / 2;
-                      ctx.fill(sx, sy, sx + sw, sy + sh, on ? 0xFF00B8D4 : 0xFF2A3042);
-                      int kx = on ? sx + sw - sh + 1 : sx + 1;
-                      ctx.fill(kx, sy + 1, kx + sh - 2, sy + sh - 1, 0xFFFFFFFF);
-                  }
               }
           }
           MENUEOF
