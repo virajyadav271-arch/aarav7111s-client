@@ -25,11 +25,189 @@ jobs:
           sed -i '/ParticlesMode/d' $C/AaravClient.java
           sed -i 's/Aarav7111s Client/AY Nova/g' $C/AaravClient.java $R/fabric.mod.json $R/assets/aarav7111sclient/lang/en_us.json
           sed -i 's/Modules.load();/Modules.load();\n        Branding.init();/' $C/AaravClient.java
+          sed -i 's/HudRenderer.renderArmor(ctx, mc, 6, 66)/ArmorHud.render(ctx, mc, 6, 66)/' $C/AaravClient.java
+          sed -i '/HudRenderer.renderWarning/d' $C/AaravClient.java
+          sed -i 's/"GameRendererMixin"/"GameRendererMixin", "SplashOverlayMixin"/' $R/aarav7111sclient.mixins.json
           sed -i '/Module CPS /a\    public static final Module WARN_FIRE = new Module("warnfire", "Fire Warning", true);' $C/Modules.java
           sed -i '/Module CPS /a\    public static final Module WARN_TOTEM = new Module("warntotem", "Totem Warning", true);' $C/Modules.java
           sed -i '/Module CPS /a\    public static final Module WARN_SHIELD = new Module("warnshield", "Shield Warning", true);' $C/Modules.java
           sed -i '/Module CPS /a\    public static final Module BRANDING = new Module("branding", "AY Branding", true);' $C/Modules.java
           sed -i 's/KEYSTROKES, CPS);/KEYSTROKES, CPS, BRANDING, WARN_SHIELD, WARN_TOTEM, WARN_FIRE);/' $C/Modules.java
+          cat > $C/PixelLogo.java <<'LOGOEOF'
+          package com.aarav7111.client;
+
+          import net.minecraft.client.gui.DrawContext;
+
+          public final class PixelLogo {
+              public static final int ORANGE = 0xFFFF9A1F, YELLOW = 0xFFFFD23F, WHITE = 0xFFFFFFFF;
+              public static final int CELLS = 39;
+              private static final String[] GA = {"01110", "10001", "10001", "11111", "10001", "10001", "10001"};
+              private static final String[] GY = {"10001", "10001", "01010", "00100", "00100", "00100", "00100"};
+              private static final String[] GN = {"10001", "11001", "10101", "10011", "10001", "10001", "10001"};
+              private static final String[] GO = {"01110", "10001", "10001", "10001", "10001", "10001", "01110"};
+              private static final String[] GV = {"10001", "10001", "10001", "10001", "10001", "01010", "00100"};
+
+              private PixelLogo() {}
+
+              public static int lerp(int a, int b, float t) {
+                  t = Math.max(0f, Math.min(1f, t));
+                  int out = 0;
+                  for (int s = 24; s >= 0; s -= 8) {
+                      int ca = (a >>> s) & 255, cb = (b >>> s) & 255;
+                      out |= (((int) (ca + (cb - ca) * t)) & 255) << s;
+                  }
+                  return out;
+              }
+
+              public static int mulA(int c, float m) {
+                  int a = (int) (((c >>> 24) & 255) * m);
+                  a = Math.max(4, Math.min(255, a));
+                  return (a << 24) | (c & 0xFFFFFF);
+              }
+
+              private static String[] glyph(char c) {
+                  return switch (c) {
+                      case 'A' -> GA;
+                      case 'Y' -> GY;
+                      case 'N' -> GN;
+                      case 'O' -> GO;
+                      default -> GV;
+                  };
+              }
+
+              public static void draw(DrawContext ctx, int x, int y, int s, long now, float alpha) {
+                  String text = "AY NOVA";
+                  int cx = 0;
+                  for (int i = 0; i < text.length(); i++) {
+                      char c = text.charAt(i);
+                      if (c == ' ') {
+                          cx += 4;
+                          continue;
+                      }
+                      String[] g = glyph(c);
+                      for (int r = 0; r < 7; r++) {
+                          for (int q = 0; q < 5; q++) {
+                              if (g[r].charAt(q) != '1') continue;
+                              int px = x + (cx + q) * s, py = y + r * s;
+                              float sh = 0.5f + 0.5f * (float) Math.sin(now / 450.0 - (cx + q) * 0.22 + r * 0.15);
+                              int col = sh < 0.5f ? lerp(ORANGE, YELLOW, sh * 2f) : lerp(YELLOW, WHITE, (sh - 0.5f) * 2f);
+                              ctx.fill(px + 1, py + 1, px + s, py + s, mulA(0x66000000, alpha));
+                              ctx.fill(px, py, px + s - 1, py + s - 1, mulA(col, alpha));
+                          }
+                      }
+                      cx += 6;
+                  }
+                  int total = CELLS * s;
+                  int uy = y + 7 * s + s;
+                  ctx.fill(x, uy, x + total, uy + 1, mulA(ORANGE, alpha * 0.35f));
+                  int segW = total / 4;
+                  int segX = x + (int) ((now / 6) % (total + segW)) - segW;
+                  int x1 = Math.max(x, segX), x2 = Math.min(x + total, segX + segW);
+                  if (x2 > x1) ctx.fill(x1, uy, x2, uy + 1, mulA(YELLOW, alpha));
+              }
+          }
+          LOGOEOF
+          cat > $C/ArmorHud.java <<'ARMOREOF'
+          package com.aarav7111.client;
+
+          import net.minecraft.client.MinecraftClient;
+          import net.minecraft.client.font.TextRenderer;
+          import net.minecraft.client.gui.DrawContext;
+          import net.minecraft.entity.EquipmentSlot;
+          import net.minecraft.item.ItemStack;
+
+          public final class ArmorHud {
+              private static final EquipmentSlot[] SLOTS =
+                      {EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
+
+              private ArmorHud() {}
+
+              public static void render(DrawContext ctx, MinecraftClient mc, int x, int y) {
+                  TextRenderer tr = mc.textRenderer;
+                  int sx = x;
+                  for (EquipmentSlot slot : SLOTS) {
+                      ItemStack st = mc.player.getEquippedStack(slot);
+                      if (st.isEmpty()) continue;
+                      ctx.fill(sx, y, sx + 34, y + 34, 0x70101018);
+                      ctx.fill(sx, y + 33, sx + 34, y + 34, 0x88FF9A1F);
+                      ctx.drawItem(st, sx + 9, y + 3);
+                      if (st.isDamageable()) {
+                          int max = st.getMaxDamage();
+                          float pct = (max - st.getDamage()) / (float) max;
+                          int c = pct > 0.5f ? 0xFF55FF55 : (pct > 0.15f ? 0xFFFFFF55 : 0xFFFF4444);
+                          ctx.fill(sx + 4, y + 21, sx + 30, y + 23, 0xFF2A2A2A);
+                          ctx.fill(sx + 4, y + 21, sx + 4 + (int) (26 * pct), y + 23, c);
+                          String p = (int) (pct * 100) + "%";
+                          ctx.drawTextWithShadow(tr, p, sx + (34 - tr.getWidth(p)) / 2, y + 24, c);
+                          if (Modules.DURA_WARN.enabled && pct <= 0.15f) {
+                              int a = 150 + (int) (105 * (0.5 + 0.5 * Math.sin(System.currentTimeMillis() / 180.0)));
+                              ctx.drawTextWithShadow(tr, "\u00a7l!", sx + 26, y + 2, (a << 24) | 0xFF3333);
+                          }
+                      }
+                      sx += 38;
+                  }
+              }
+          }
+          ARMOREOF
+          cat > $C/mixin/SplashOverlayMixin.java <<'SPLASHEOF'
+          package com.aarav7111.client.mixin;
+
+          import com.aarav7111.client.PixelLogo;
+          import net.minecraft.client.gui.DrawContext;
+          import net.minecraft.client.gui.screen.SplashOverlay;
+          import net.minecraft.util.Util;
+          import org.spongepowered.asm.mixin.Mixin;
+          import org.spongepowered.asm.mixin.Shadow;
+          import org.spongepowered.asm.mixin.injection.At;
+          import org.spongepowered.asm.mixin.injection.Inject;
+          import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+          @Mixin(SplashOverlay.class)
+          public class SplashOverlayMixin {
+              @Shadow private float progress;
+              @Shadow private long reloadCompleteTime;
+
+              @Inject(method = "render", at = @At("TAIL"), require = 0)
+              private void aarav$brand(DrawContext ctx, int mouseX, int mouseY, float delta, CallbackInfo ci) {
+                  try {
+                      float alpha = 1f;
+                      if (reloadCompleteTime > -1L) {
+                          float f = (Util.getMeasuringTimeMs() - reloadCompleteTime) / 1000f;
+                          alpha = 1f - Math.max(0f, Math.min(1f, f));
+                      }
+                      if (alpha <= 0.01f) return;
+                      int w = ctx.getScaledWindowWidth(), h = ctx.getScaledWindowHeight();
+                      int A = Math.min(255, (int) Math.ceil(alpha * 255));
+                      long now = System.currentTimeMillis();
+                      ctx.fillGradient(0, 0, w, h, (A << 24) | 0x0B0806, (A << 24) | 0x1E1206);
+
+                      for (int i = 0; i < 40; i++) {
+                          int sx = (int) ((i * 97 + now * (0.012 + (i % 5) * 0.005)) % w);
+                          int sy = (int) ((i * 53 + now * 0.004 * (1 + i % 3)) % h);
+                          int a = (int) ((40 + 70 * (0.5 + 0.5 * Math.sin(now / 600.0 + i))) * alpha);
+                          ctx.fill(sx, sy, sx + 1, sy + 1, (Math.max(a, 4) << 24) | ((i % 2 == 0) ? 0xFFB347 : 0xFFE9A8));
+                      }
+
+                      int s = Math.max(2, Math.min((int) (w * 0.5 / PixelLogo.CELLS), (int) (h * 0.18 / 7)));
+                      int lw = PixelLogo.CELLS * s, lh = 7 * s;
+                      int lx = (w - lw) / 2, ly = h / 2 - lh / 2 - s * 2;
+                      PixelLogo.draw(ctx, lx, ly, s, now, alpha);
+
+                      int bh = Math.max(4, s), by = ly + lh + s * 5;
+                      float p = Math.max(0f, Math.min(1f, progress));
+                      ctx.fill(lx - 1, by - 1, lx + lw + 1, by + bh + 1, PixelLogo.mulA(0xFFFF9A1F, alpha * 0.55f));
+                      ctx.fill(lx, by, lx + lw, by + bh, PixelLogo.mulA(0xFF120D08, alpha));
+                      int fw = (int) (lw * p);
+                      for (int i = 0; i < fw; i += 2) {
+                          float sh = 0.5f + 0.5f * (float) Math.sin(i * 0.05 - now / 250.0);
+                          int col = PixelLogo.lerp(PixelLogo.ORANGE, PixelLogo.YELLOW, (i / (float) lw) * 0.6f + sh * 0.4f);
+                          ctx.fill(lx + i, by, lx + Math.min(i + 2, fw), by + bh, PixelLogo.mulA(col, alpha));
+                      }
+                  } catch (Throwable ignored) {
+                  }
+              }
+          }
+          SPLASHEOF
           cat > $C/Warnings.java <<'WARNEOF'
           package com.aarav7111.client;
 
@@ -122,7 +300,9 @@ jobs:
                   ScreenEvents.AFTER_INIT.register((client, screen, w, h) -> {
                       if (screen instanceof HandledScreen<?>) {
                           ScreenEvents.afterRender(screen).register((s, ctx, mx, my, delta) -> badge(ctx, true));
-                      } else if (screen instanceof TitleScreen || screen instanceof GameMenuScreen) {
+                      } else if (screen instanceof TitleScreen) {
+                          ScreenEvents.afterRender(screen).register((s, ctx, mx, my, delta) -> titleLogo(ctx));
+                      } else if (screen instanceof GameMenuScreen) {
                           ScreenEvents.afterRender(screen).register((s, ctx, mx, my, delta) -> badge(ctx, false));
                       }
                   });
@@ -131,6 +311,13 @@ jobs:
                           VanillaHudElements.MISC_OVERLAYS,
                           Identifier.of("aarav7111sclient", "warnings"),
                           (ctx, tick) -> Warnings.render(ctx));
+              }
+
+              private static void titleLogo(DrawContext ctx) {
+                  if (!Modules.BRANDING.enabled) return;
+                  int s = ctx.getScaledWindowHeight() < 240 ? 2 : 3;
+                  int x = (ctx.getScaledWindowWidth() - PixelLogo.CELLS * s) / 2;
+                  PixelLogo.draw(ctx, x, 5, s, System.currentTimeMillis(), 1f);
               }
 
               private static void badge(DrawContext ctx, boolean bottomRight) {
@@ -216,11 +403,11 @@ jobs:
                       case "fullbright" -> "See clearly in the dark";
                       case "fpsboost" -> "Lower settings for more FPS";
                       case "armorhud" -> "Armor with durability bars";
-                      case "durawarn" -> "Alert when armor is low";
+                      case "durawarn" -> "Red ! when armor is low";
                       case "potionhud" -> "Styled effect panels";
                       case "keystrokes" -> "WASD and mouse keys";
                       case "cps" -> "Clicks per second";
-                      case "branding" -> "AY Nova badge on screens";
+                      case "branding" -> "AY Nova logo on screens";
                       case "warnshield" -> "Alert when shield is low";
                       case "warntotem" -> "Alert when totems run low";
                       case "warnfire" -> "Fire and fire resistance alert";
